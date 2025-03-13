@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  labels:
+    type: ap-efs-mlflow-0001-pv
+  name: ap-efs-mlflow-0001-pv
+spec:
+  accessModes:
+  - ReadWriteMany
+  capacity:
+    storage: 10Gi
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: fs-07ab59687408a6326::fsap-06c5ac3fe539ef0bf
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+  volumeMode: Filesystem
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ap-efs-mlflow-0001-pvc
+  namespace: mlflow
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  selector:
+    matchLabels:
+      type: ap-efs-mlflow-0001-pv
+  storageClassName: efs-sc
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  labels:
+    AccessPointId: fsap-06c5ac3fe539ef0bf
+    FileSystemId: fs-07ab59687408a6326
+  name: ap-efs-mlflow-0001-server
+  namespace: mlflow
+spec:
+  template:
+    metadata:
+      annotations:
+        AccessPointARN: arn:aws:elasticfilesystem:ap-south-1:583796960412:access-point/fsap-06c5ac3fe539ef0bf
+        FileSystemARN: fs-07ab59687408a6326
+        autoscaling.knative.dev/class: kpa.autoscaling.knative.dev
+        autoscaling.knative.dev/max-scale: '1'
+        autoscaling.knative.dev/metric: rps
+        autoscaling.knative.dev/min-scale: '0'
+        autoscaling.knative.dev/scale-to-zero-pod-retention-period: 1m5s
+        autoscaling.knative.dev/target: '15'
+        autoscaling.knative.dev/terminationGracePeriodSeconds: '60'
+    spec:
+      containers:
+      - env:
+        - name: MLFLOW_BACKEND_STORE_URI
+          value: file:///main/mlflow/mlruns
+        image: public.ecr.aws/y2o2u1i0/mlflow-ecr:latest
+        ports:
+        - containerPort: 5000
+        resources:
+          limits:
+            cpu: '2'
+            memory: 5Gi
+          requests:
+            cpu: '0.1'
+            memory: 100Mi
+        volumeMounts:
+        - mountPath: /main/mlflow
+          name: efs-mlflow-volume
+      timeoutSeconds: 60
+      volumes:
+      - name: efs-mlflow-volume
+        persistentVolumeClaim:
+          claimName: ap-efs-mlflow-0001-pvc

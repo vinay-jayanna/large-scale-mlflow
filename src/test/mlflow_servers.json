@@ -1,0 +1,10 @@
+[
+    {
+      "url": "http://13.233.184.59:5000",
+      "name": "mlflow-postgre-server"
+    },
+    {
+      "url": "http://ap-efs-mlflow-0001-server.mlflow.13.233.56.157.sslip.io/",
+      "name": "mlflow-efs-server"
+    }
+]

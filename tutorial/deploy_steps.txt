@@ -1,0 +1,292 @@
+Deploy EFS PersistentVolume and PVC, use in Knative service.
+
+ubuntu@ip-172-31-15-14:~$ cat efs-pv-pvc.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: efs-mlflow
+spec:
+  capacity:
+    storage: 5Gi # Adjust this according to your needs
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: fs-07ab59687408a6326  # Replace FileSystemId with your EFS File System ID, e.g., fs-07ab59687408a6326
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: efs-mlflow-pvc
+  namespace: mlflow
+spec:
+  storageClassName: efs-sc
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+ubuntu@ip-172-31-15-14:~$ cat mlflow-efs-main.yaml
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: mlflow-efs-main
+  namespace: mlflow
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/class: kpa.autoscaling.knative.dev
+        autoscaling.knative.dev/max-scale: '2'
+        autoscaling.knative.dev/metric: rps
+        autoscaling.knative.dev/min-scale: '0'
+        autoscaling.knative.dev/scale-to-zero-pod-retention-period: 1m5s
+        autoscaling.knative.dev/target: '15'
+        autoscaling.knative.dev/terminationGracePeriodSeconds: '60'
+    spec:
+      containers:
+      - image: public.ecr.aws/y2o2u1i0/mlflow-ecr:latest
+        ports:
+        - containerPort: 5000
+        env:  # Add this section
+        - name: MLFLOW_BACKEND_STORE_URI
+          value: "file:///main/mlflow/mlruns"
+        resources:
+          limits:
+            cpu: 2
+            memory: 5Gi
+          requests:
+            cpu: 0.1
+            memory: 100Mi
+        volumeMounts: # <-- Add this section
+        - name: efs-mlflow-volume
+          mountPath: "/main/mlflow" # Replace this with the path where you want the volume to be mounted inside the container
+      volumes: # <-- Add this section
+      - name: efs-mlflow-volume
+        persistentVolumeClaim:
+          claimName: efs-mlflow-pvc
+      timeoutSeconds: 60
+ubuntu@ip-172-31-15-14:~$ 
+
+
+
+
+
+Deploy EFS in AccessPoint PersistentVolume and PVC, use in Knative service.
+
+
+ubuntu@ip-172-31-15-14:~$ aws efs create-access-point \
+  --file-system-id fs-07ab59687408a6326 \
+  --client-token mlflow-accesspoint-main \
+  --root-directory "Path=/mlflow/ap-main,CreationInfo={OwnerUid=0,OwnerGid=11,Permissions=777}" \
+  --posix-user "Uid=22,Gid=4" \
+  --tags "Key=Name,Value=vjayanna"
+{
+    "ClientToken": "mlflow-accesspoint-main",
+    "Name": "vjayanna",
+    "Tags": [
+        {
+            "Key": "Name",
+            "Value": "vjayanna"
+        }
+    ],
+    "AccessPointId": "fsap-0c9e38253c474887c",
+    "AccessPointArn": "arn:aws:elasticfilesystem:ap-south-1:583796960412:access-point/fsap-0c9e38253c474887c",
+    "FileSystemId": "fs-07ab59687408a6326",
+    "PosixUser": {
+        "Uid": 22,
+        "Gid": 4
+    },
+    "RootDirectory": {
+        "Path": "/mlflow/ap-main",
+        "CreationInfo": {
+            "OwnerUid": 0,
+            "OwnerGid": 11,
+            "Permissions": "777"
+        }
+    },
+    "OwnerId": "583796960412",
+    "LifeCycleState": "creating"
+}
+ubuntu@ip-172-31-15-14:~$ 
+ubuntu@ip-172-31-15-14:~$ 
+ubuntu@ip-172-31-15-14:~$ aws efs describe-file-systems
+{
+    "FileSystems": [
+        {
+            "OwnerId": "583796960412",
+            "CreationToken": "46ccf3ca-29e0-477d-9177-735a07f53ea2",
+            "FileSystemId": "fs-07ab59687408a6326",
+            "FileSystemArn": "arn:aws:elasticfilesystem:ap-south-1:583796960412:file-system/fs-07ab59687408a6326",
+            "CreationTime": "2023-09-08T01:29:03+00:00",
+            "LifeCycleState": "available",
+            "NumberOfMountTargets": 3,
+            "SizeInBytes": {
+                "Value": 86016,
+                "Timestamp": "2023-09-08T17:59:10+00:00",
+                "ValueInIA": 0,
+                "ValueInStandard": 86016
+            },
+            "PerformanceMode": "maxIO",
+            "Encrypted": false,
+            "ThroughputMode": "bursting",
+            "Tags": []
+        },
+        {
+            "OwnerId": "583796960412",
+            "CreationToken": "ff81c1cb-0a2a-4469-974f-6cd8e62a661a",
+            "FileSystemId": "fs-047ac528858549b75",
+            "FileSystemArn": "arn:aws:elasticfilesystem:ap-south-1:583796960412:file-system/fs-047ac528858549b75",
+            "CreationTime": "2023-07-02T02:20:56+00:00",
+            "LifeCycleState": "available",
+            "NumberOfMountTargets": 2,
+            "SizeInBytes": {
+                "Value": 86016,
+                "Timestamp": "2023-09-08T17:57:47+00:00",
+                "ValueInIA": 0,
+                "ValueInStandard": 86016
+            },
+            "PerformanceMode": "generalPurpose",
+            "Encrypted": false,
+            "ThroughputMode": "bursting",
+            "Tags": []
+        }
+    ]
+}
+ubuntu@ip-172-31-15-14:~$ 
+ubuntu@ip-172-31-15-14:~$ aws efs describe-access-points
+{
+    "AccessPoints": [
+        {
+            "ClientToken": "mlflow-accesspoint-main",
+            "Name": "vjayanna",
+            "Tags": [
+                {
+                    "Key": "Name",
+                    "Value": "vjayanna"
+                }
+            ],
+            "AccessPointId": "fsap-0c9e38253c474887c",
+            "AccessPointArn": "arn:aws:elasticfilesystem:ap-south-1:583796960412:access-point/fsap-0c9e38253c474887c",
+            "FileSystemId": "fs-07ab59687408a6326",
+            "PosixUser": {
+                "Uid": 22,
+                "Gid": 4
+            },
+            "RootDirectory": {
+                "Path": "/mlflow/ap-main",
+                "CreationInfo": {
+                    "OwnerUid": 0,
+                    "OwnerGid": 11,
+                    "Permissions": "777"
+                }
+            },
+            "OwnerId": "583796960412",
+            "LifeCycleState": "available"
+        }
+    ]
+}
+ubuntu@ip-172-31-15-14:~$ 
+
+
+ubuntu@ip-172-31-15-14:~$ cat mlflow-apefs-main.yaml 
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ap-efs-mlflow-main-pv
+  labels:
+    type: ap-efs-mlflow-main-pv
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: fs-07ab59687408a6326::fsap-0c9e38253c474887c
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ap-efs-mlflow-main-pvc
+  namespace: mlflow
+spec:
+  selector:
+    matchLabels:
+      type: ap-efs-mlflow-main-pv
+  storageClassName: efs-sc
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: ap-efs-mlflow-main-server
+  namespace: mlflow
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/class: kpa.autoscaling.knative.dev
+        autoscaling.knative.dev/max-scale: '2'
+        autoscaling.knative.dev/metric: rps
+        autoscaling.knative.dev/min-scale: '0'
+        autoscaling.knative.dev/scale-to-zero-pod-retention-period: 1m5s
+        autoscaling.knative.dev/target: '15'
+        autoscaling.knative.dev/terminationGracePeriodSeconds: '60'
+    spec:
+      containers:
+      - image: public.ecr.aws/y2o2u1i0/mlflow-ecr:latest
+        ports:
+        - containerPort: 5000
+        env:  # Add this section
+        - name: MLFLOW_BACKEND_STORE_URI
+          value: "file:///main/mlflow/mlruns"
+        resources:
+          limits:
+            cpu: 2
+            memory: 5Gi
+          requests:
+            cpu: 0.1
+            memory: 100Mi
+        volumeMounts: # <-- Add this section
+        - name: efs-mlflow-volume
+          mountPath: "/main/mlflow" # Replace this with the path where you want the volume to be mounted inside the container
+      volumes: # <-- Add this section
+      - name: efs-mlflow-volume
+        persistentVolumeClaim:
+          claimName: ap-efs-mlflow-main-pvc
+      timeoutSeconds: 60
+ubuntu@ip-172-31-15-14:~$ 
+
+
+ubuntu@ip-172-31-15-14:~$ kubectl apply -f mlflow-apefs-main.yaml 
+persistentvolume/ap-efs-mlflow-main-pv created
+persistentvolumeclaim/ap-efs-mlflow-main-pvc created
+Warning: Kubernetes default value is insecure, Knative may default this to secure in a future release: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation, spec.template.spec.containers[0].securityContext.capabilities, spec.template.spec.containers[0].securityContext.runAsNonRoot, spec.template.spec.containers[0].securityContext.seccompProfile
+service.serving.knative.dev/ap-efs-mlflow-main-server created
+ubuntu@ip-172-31-15-14:~$ 
+ubuntu@ip-172-31-15-14:~$ 
+ubuntu@ip-172-31-15-14:~$ kubectl get ksvc -n mlflow 
+NAME                        URL                                                              LATESTCREATED                     LATESTREADY                       READY   REASON
+ap-efs-mlflow-main-server   http://ap-efs-mlflow-main-server.mlflow.13.233.56.157.sslip.io   ap-efs-mlflow-main-server-00001   ap-efs-mlflow-main-server-00001   True    
+mlflow-efs-main             http://mlflow-efs-main.mlflow.13.233.56.157.sslip.io             mlflow-efs-main-00001             mlflow-efs-main-00001             True    
+mlflow-mnbhsf123            http://mlflow-mnbhsf123.mlflow.13.233.56.157.sslip.io            mlflow-mnbhsf123-00001            mlflow-mnbhsf123-00001            True    
+
+
+
+
+
+
+
+

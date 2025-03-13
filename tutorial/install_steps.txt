@@ -1,0 +1,96 @@
+RUNNING KNATIVE ON AWS EFS
+
+Create EFS File System - 
+history 50
+ 1557  sudo apt-get upgrade awscli 
+ 1558  aws --version | cut -d / -f2
+ 1559  kubectl --version
+ 1560  kubectl --help
+ 1561  kubectl version
+ 1562  export cluster_name=mlflow-cluster
+ 1563  export role_name=AmazonEKS_EFS_CSI_DriverRole
+ 1564  eksctl create iamserviceaccount     --name efs-csi-controller-sa     --namespace kube-system     --cluster $cluster_name     --role-name $role_name     --role-only     --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy     --approve
+ 1565  TRUST_POLICY=$(aws iam get-role --role-name $role_name --query 'Role.AssumeRolePolicyDocument' | \
+    sed -e 's/efs-csi-controller-sa/efs-csi-*/' -e 's/StringEquals/StringLike/')
+ 1566  aws iam update-assume-role-policy --role-name $role_name --policy-document "$TRUST_POLICY"
+ 1567  aws eks describe-cluster --name mlflow-cluster --query "cluster.identity.oidc.issuer" --output text
+ 1568  vi aws-efs-csi-driver-trust-policy.json
+cat aws-efs-csi-driver-trust-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::583796960412:oidc-provider/oidc.eks.ap-south-1.amazonaws.com/id/63F68A59B755828CDA3656B59A83870B"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringLike": {
+          "oidc.eks.ap-south-1.amazonaws.com/id/63F68A59B755828CDA3656B59A83870B:sub": "system:serviceaccount:kube-system:efs-csi-*",
+          "oidc.eks.ap-south-1.amazonaws.com/id/63F68A59B755828CDA3656B59A83870B:aud": "sts.amazonaws.com"
+        }
+      }
+    }
+  ]
+}
+
+ 1569  aws iam create-role   --role-name AmazonEKS_EFS_CSI_DriverRole   --assume-role-policy-document file://"aws-efs-csi-driver-trust-policy.json"
+ 1570  aws iam attach-role-policy   --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy   --role-name AmazonEKS_EFS_CSI_DriverRole
+ 1571  export cluster_name=mlflow-cluster
+ 1572  export role_name=AmazonEKS_EFS_CSI_DriverRole
+ 1573  eksctl create iamserviceaccount     --name efs-csi-controller-sa     --namespace kube-system     --cluster $cluster_name     --role-name $role_name     --role-only     --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy     --approve
+ 1574  TRUST_POLICY=$(aws iam get-role --role-name $role_name --query 'Role.AssumeRolePolicyDocument' | \
+    sed -e 's/efs-csi-controller-sa/efs-csi-*/' -e 's/StringEquals/StringLike/')
+ 1575  aws iam update-assume-role-policy --role-name $role_name --policy-document "$TRUST_POLICY"
+ 1576  export cluster_name=mlflow-cluster
+ 1577  export role_name=AmazonEKS_EFS_CSI_DriverRole
+ 1578  eksctl create iamserviceaccount     --name efs-csi-controller-sa     --namespace kube-system     --cluster $cluster_name     --role-name $role_name     --role-only     --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy     --approve
+ 1579  TRUST_POLICY=$(aws iam get-role --role-name $role_name --query 'Role.AssumeRolePolicyDocument' | \
+    sed -e 's/efs-csi-controller-sa/efs-csi-*/' -e 's/StringEquals/StringLike/')
+ 1580  aws iam update-assume-role-policy --role-name $role_name --policy-document "$TRUST_POLICY"
+ 1581  vpc_id=$(aws eks describe-cluster \
+    --name mlflow-cluster \
+    --query "cluster.resourcesVpcConfig.vpcId" \
+    --output text)
+ 1582  cidr_range=$(aws ec2 describe-vpcs \
+    --vpc-ids $vpc_id \
+    --query "Vpcs[].CidrBlock" \
+    --output text \
+    --region ap-south-1)
+ 1583  echo $cidr_range
+ 1584  echo $vpc_id
+ 1585  security_group_id=$(aws ec2 create-security-group \
+    --group-name MyEfsSecurityGroup \
+    --description "My EFS security group" \
+    --vpc-id $vpc_id \
+    --output text)
+ 1586  aws ec2 authorize-security-group-ingress     --group-id $security_group_id     --protocol tcp     --port 2049     --cidr $cidr_range
+ 1587  security_group_id=$(aws ec2 describe-security-groups \
+    --filters "Name=vpc-id,Values=$vpc_id" "Name=group-name,Values=MyEfsSecurityGroup" \
+    --query 'SecurityGroups[0].GroupId' \
+    --output text)
+ 1588  echo $security_group_id
+ 1589  aws ec2 authorize-security-group-ingress     --group-id $security_group_id     --protocol tcp     --port 2049     --cidr $cidr_range
+ 1590  aws ec2 authorize-security-group-ingress     --group-id $security_group_id     --protocol tcp     --port 2049     --cidr $cidr_range
+ 1591  An error occurred (InvalidPermission.Duplicate) when calling the AuthorizeSecurityGroupIngress operation: the specified rule "peer: 192.168.0.0/16, TCP, from port: 2049, to port: 2049, ALLOW" already exists
+ 1592  aws ec2 describe-security-groups     --group-ids $security_group_id     --query 'SecurityGroups[0].IpPermissions[]'     --output json
+ 1593  echho $cidr_range
+ 1594  echo $cidr_range
+ 1595  file_system_id=$(aws efs create-file-system \
+    --region ap-south-1 \
+    --performance-mode maxIO \
+    --query 'FileSystemId' \
+    --output text)
+ 1596  kubectl get nodes
+ 1597  aws ec2 describe-subnets     --filters "Name=vpc-id,Values=$vpc_id"     --query 'Subnets[*].{SubnetId: SubnetId,AvailabilityZone: AvailabilityZone,CidrBlock: CidrBlock}'     --output table
+ 1598  echo $EXAMPLEe2ba886490
+ 1599  echo $file_system_id
+ 1600  subnet_ids=("subnet-080e09822ea46b8e4" "subnet-036a3026a0822c938" "subnet-0012cf3bc432487a2" "subnet-00bb3b46f3cecc639" "subnet-0c663c7d61971adff" "subnet-05628a61158dd7728")
+ 1601  exhoh $security_group_id
+ 1602  echo $security_group_id
+ 1603  echo $file_system_id
+ 1604  for subnet_id in "${subnet_ids[@]}"; do     aws efs create-mount-target         --file-system-id $file_system_id         --subnet-id $subnet_id         --security-groups $security_group_id; done
+ 1605  echo $file_system_id
+ 1606  history 50
+

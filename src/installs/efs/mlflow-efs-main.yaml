@@ -1,0 +1,39 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: mlflow-efs-main
+  namespace: mlflow
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/class: kpa.autoscaling.knative.dev
+        autoscaling.knative.dev/max-scale: '2'
+        autoscaling.knative.dev/metric: rps
+        autoscaling.knative.dev/min-scale: '0'
+        autoscaling.knative.dev/scale-to-zero-pod-retention-period: 1m5s
+        autoscaling.knative.dev/target: '15'
+        autoscaling.knative.dev/terminationGracePeriodSeconds: '60'
+    spec:
+      containers:
+      - image: public.ecr.aws/y2o2u1i0/mlflow-ecr:latest
+        ports:
+        - containerPort: 5000
+        env:  # Add this section
+        - name: MLFLOW_BACKEND_STORE_URI
+          value: "file:///main/mlflow/mlruns"
+        resources:
+          limits:
+            cpu: 2
+            memory: 5Gi
+          requests:
+            cpu: 0.1
+            memory: 100Mi
+        volumeMounts: # <-- Add this section
+        - name: efs-mlflow-volume
+          mountPath: "/main/mlflow" # Replace this with the path where you want the volume to be mounted inside the container
+      volumes: # <-- Add this section
+      - name: efs-mlflow-volume
+        persistentVolumeClaim:
+          claimName: efs-mlflow-pvc
+      timeoutSeconds: 60
